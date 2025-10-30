@@ -310,11 +310,11 @@ if __name__ == "__main__":
     # For now, we pass an empty agent_scripts list so server still runs and uses only player actions and default agents.
     myip = "127.0.0.1"
     agent_scripts = [
-        ([i for i in range(2,4)], env_utils.agents.BasicAgent()),
-        ([i for i in range(4,11)], env_utils.agents.BasicAgent()),
+        ([i for i in range(1,4)], env_utils.agents.BasicAgent()),
+        ([i for i in range(4,14)], env_utils.agents.BasicAgent()),
         #([6,7,8,9,10], env_utils.agents.BasicAgent())
     ]
-    server = GameServer(host=myip, port=9999, teams=[4,7], agent_scripts=agent_scripts)
+    server = GameServer(host=myip, port=9999, teams=[4,10], agent_scripts=agent_scripts)
     accept_thread = threading.Thread(target=server.accept_loop, daemon=True)
     accept_thread.start()
     server.game_loop()

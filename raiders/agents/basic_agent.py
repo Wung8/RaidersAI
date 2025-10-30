@@ -146,6 +146,22 @@ class BasicAgent(BaseAgent):
                 case self.States.SEIGING:
                     self.handleSeiging()
             
+            # no hitting friendly turrets
+            if self.state.action[2] in (1,3):
+                for obj in self.obs.turret:
+                    if obj.team != self.team: continue
+                    dist = math.dist(obj.position, self.obs.self.position)
+                    if dist < 90:
+                        dx, dy = obj.position[0] - self.obs.self.position[0], obj.position[1] - self.obs.self.position[1]
+                        d_angle = (self.obs.self.angle - math.atan2(dy, dx)) % math.pi
+
+                        if dist < 50 or min(abs(d_angle-math.pi), d_angle) < math.pi * 0.8 / (math.dist(obj.position, self.obs.self.position) / 30):
+                            if self.state.state in (self.States.ATTACKING, self.States.SEIGING, self.States.RETREATING):
+                                self.state.action[2] = 2
+                            else:
+                                self.state.action[3] = 0
+                                self.moveTowardsPos(obj.position, away=True)
+
             # autoheal
             if self.obs.self.health <= 15 and self.obs.self.food >= 15 and random.random() < 0.05:
                 self.state.action[2] = 9
@@ -170,7 +186,7 @@ class BasicAgent(BaseAgent):
         '''
         if team_observations[0].metadata.time == 1:
             for agent_id in self.agent_ids:
-                self.agent_states[agent_id].base_is_objective = True
+                self.agent_states[agent_id].base_is_objective = False
 
         if team_observations[0].metadata.time > 180*20: # 3 minutes
             for agent_id in self.agent_ids:
@@ -414,7 +430,7 @@ class BasicAgent(BaseAgent):
                 self.state.action[2] = 1
                 self.state.action[3] = 1
                 return
-            if self.state.patience == -1:
+            if self.state.patience < 0:
                 self.state.patience = 90
             elif self.state.patience == 0:
                 self.state.changeState(self.States.IDLE)
@@ -530,7 +546,7 @@ class BasicAgent(BaseAgent):
 
         closest_enemy, dist = self.getClosestObject(enemies)
         if closest_enemy is None:
-            if self.state.patience == -1:
+            if self.state.patience < 0:
                 self.state.patience = 30
             elif self.state.patience == 0:
                 self.state.changeState(self.States.IDLE)
@@ -551,8 +567,8 @@ class BasicAgent(BaseAgent):
         if seige_state == "advantage":
             spike_threshold = 30
             melee_threshold = 50
-            turret_threshold = 100
-            range_threshold = 200
+            turret_threshold = 150
+            range_threshold = 250
             if dist < spike_threshold and self.placeSpike(closest_enemy.position):
                 return
             if dist < melee_threshold:
@@ -561,12 +577,13 @@ class BasicAgent(BaseAgent):
                 self.state.action[2] = 1
                 self.state.action[3] = 1
                 return
-            if dist < turret_threshold:
+            if dist > turret_threshold:
                 self.moveTowardsPos(closest_enemy.position)
                 self.pointToTarget(closest_enemy.position)
-                if self.highOnResources(resource_threshold=80) and math.dist(self.obs.self.position, self.obs.metadata.center) < 400:
+                if self.highOnResources(100, True) and math.dist(self.obs.self.position, self.obs.metadata.center) < 500 and self.placeSpike(closest_enemy.position):
                     self.state.action[2] = 8
                     self.state.action[3] = 1
+                    self.moveTowardsPos(closest_enemy.position, away=True)
                     return
                 elif random.random() < 0.2 :
                     self.state.action[2] = 5
@@ -660,7 +677,7 @@ class BasicAgent(BaseAgent):
         if seige_state == "neutral":
             spike_threshold = 40
             melee_threshold = 50
-            range_threshold = 200
+            range_threshold = 250
             if dist < spike_threshold and self.placeSpike(closest_enemy.position):
                 return
 
@@ -671,6 +688,11 @@ class BasicAgent(BaseAgent):
                 return
             
             if dist < range_threshold and not self.objectsInWay(closest_enemy.position):
+                if self.highOnResources(100, True) and math.dist(self.obs.self.position, self.obs.metadata.center) < 500 and dist > 150 and self.placeSpike(closest_enemy.position):
+                    self.state.action[2] = 8
+                    self.state.action[3] = 1
+                    self.moveTowardsPos(closest_enemy.position, away=True)
+                    return
                 self.state.action[2] = 2
                 self.state.action[3] = 1
                 self.pointToTarget(closest_enemy.position)
@@ -862,7 +884,7 @@ class BasicAgent(BaseAgent):
             if math.dist(self.obs.self.position, spike.position) < 55:
                 dx, dy = spike.position[0] - self.obs.self.position[0], spike.position[1] - self.obs.self.position[1]
                 angle2 = math.atan2(dy, dx)
-                da = angle2 - angle
+                da = min(0.05, angle2 - angle)
                 if abs(da) < math.pi/2:
                     angle = da / abs(da) * math.pi * 0.44 + angle2
                     break
@@ -911,11 +933,11 @@ class BasicAgent(BaseAgent):
         if self.obs.self.stone < resource_threshold: return True
         return False
 
-    def highOnResources(self, resource_threshold=200):
-        if self.obs.self.food < resource_threshold / 2: return False
+    def highOnResources(self, resource_threshold=200, ignore_food=False):
+        if not ignore_food and self.obs.self.food < resource_threshold / 2: return False
         if self.obs.self.wood < resource_threshold: return False
         if self.obs.self.stone < resource_threshold: return False
-        return False
+        return True
     
     def debug(self, surface):
         for agent_id in self.agent_ids:

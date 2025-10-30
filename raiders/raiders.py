@@ -45,88 +45,45 @@ def cast(value: str):
 pygame.mixer.init()
 pygame.mixer.set_num_channels(32)  # allow many sounds
 
-assets_folder = "assets"
+assets_folder = "assets/sounds"
 sound_files = [f for f in os.listdir(assets_folder) if f.endswith((".ogg"))]
-
-sounds = {file.split("/")[-1].split(".")[0]: pygame.mixer.Sound(os.path.join(assets_folder, file)) for file in sound_files}
+sounds = {}
+sound_to_idx = {}
+idx_to_sound = {}
+idx = 0
+for file in sound_files:
+    f = file
+    file = file.split("/")[-1].split(".")[0]
+    n = 0
+    for n in range(len(file)):
+        if file[n].isdigit():
+            break
+    
+    if not file[n].isdigit():
+        file = file + "0"
+        n += 1
+    sound, num = file[:n], file[n:]
+    if sound not in sounds:
+        sounds[sound] = []
+        sound_to_idx[sound] = idx
+        idx_to_sound[idx] = sound
+        idx += 1
+    sounds[sound].append(pygame.mixer.Sound(os.path.join(assets_folder, f)))
 
 class SoundUtils:
 
     sounds = sounds
+    sound_to_idx = sound_to_idx
+    idx_to_sound = idx_to_sound
+
+    @staticmethod
+    def encodeSoundID(sound):
+        return SoundUtils.sound_to_idx[sound]
 
     @staticmethod
     def decodeSoundID(sound_id):
-        match sound_id:
-            case 0:
-                soundfile = random.choice(["playerhurt1", "playerhurt2", "playerhurt3"])
-                return SoundUtils.sounds[soundfile]
-            case 1:
-                soundfile = random.choice(["stonehit1", "stonehit2", "stonehit3"])
-                return SoundUtils.sounds[soundfile]
-            case 2:
-                soundfile = random.choice(["bushhit1", "bushhit2", "bushhit3"])
-                return SoundUtils.sounds[soundfile]
-            case 3:
-                soundfile = random.choice(["woodhit1", "woodhit2", "woodhit3", "woodhit4"])
-                return SoundUtils.sounds[soundfile]
-            case 4:
-                soundfile = random.choice(["woodplace1", "woodplace2", "woodplace3"])
-                return SoundUtils.sounds[soundfile]
-            case 5:
-                soundfile = random.choice(["stoneplace1", "stoneplace2", "stoneplace3"])
-                return SoundUtils.sounds[soundfile]
-            case 6:
-                soundfile = random.choice(["explosion1", "explosion2", "explosion3", "explosion4"])
-                return SoundUtils.sounds[soundfile]
-            case 7:
-                soundfile = random.choice(["turretfire"])
-                return SoundUtils.sounds[soundfile]
-            case 8:
-                soundfile = random.choice(["bullethit"])
-                return SoundUtils.sounds[soundfile]
-            case 9:
-                soundfile = random.choice(["playerdie"])
-                return SoundUtils.sounds[soundfile]
-            case 10:
-                soundfile = random.choice(["structurehit1", "structurehit2", "structurehit3", "structurehit4"])
-                return SoundUtils.sounds[soundfile]
-            case 11:
-                soundfile = random.choice(["lightattack"])
-                return SoundUtils.sounds[soundfile]
-            case 12:
-                soundfile = random.choice(["heavyattack"])
-                return SoundUtils.sounds[soundfile]
-            case 13:
-                soundfile = random.choice(["bowshoot"])
-                return SoundUtils.sounds[soundfile]
-            case 14:
-                soundfile = random.choice(["arrowhit1", "arrowhit2", "arrowhit3", "arrowhit4"])
-                return SoundUtils.sounds[soundfile]
-            case 15:
-                soundfile = random.choice(["arrowhitplayer"])
-                return SoundUtils.sounds[soundfile]
-            case 16:
-                soundfile = random.choice(["frag"])
-                return SoundUtils.sounds[soundfile]
-            case 17:
-                soundfile = random.choice(["turretplace1", "turretplace2"])
-                return SoundUtils.sounds[soundfile]
-            case 18:
-                soundfile = random.choice(["turretplace1", "turretplace2"])
-                return SoundUtils.sounds[soundfile]
-            case 19:
-                soundfile = random.choice(["basehit1", "basehit2", "basehit3"])
-                return SoundUtils.sounds[soundfile]
-            case 20:
-                soundfile = random.choice(["basedie"])
-                return SoundUtils.sounds[soundfile]
-            case 21:
-                soundfile = random.choice(["wooddie"])
-                return SoundUtils.sounds[soundfile]
-            case 22:
-                soundfile = random.choice(["stonedie"])
-                return SoundUtils.sounds[soundfile]
-
+        sound = SoundUtils.idx_to_sound[sound_id]
+        return random.choice(SoundUtils.sounds[sound])
 
     @staticmethod
     def playSound(sound_id, dist, scale):
@@ -533,7 +490,7 @@ class Player():
     
     def changeHealth(self, health):
         if health < 0:
-            self.env.sounds.append((0, *self.pos, 0.2))
+            self.env.addSound("playerhurt", self.pos, 0.2)
         self.events.change_health += health
         self.health += health
 
@@ -697,13 +654,13 @@ class Player():
         if self.attack_tick == self.frames[1]:
             match self.active:
                 case 1:
-                    self.env.sounds.append((11, *self.pos, 0.2))
+                    self.env.addSound("lightattack", self.pos, 0.2)
                 case 2:
-                    self.env.sounds.append((13, *self.pos, 0.35))
+                    self.env.addSound("bowshoot", self.pos, 0.35)
                 case 3:
-                    self.env.sounds.append((12, *self.pos, 0.2))
+                    self.env.addSound("heavyattack", self.pos, 0.2)
                 case 4:
-                    self.env.sounds.append((16, *self.pos, 0.4))
+                    self.env.addSound("frag", self.pos, 0.4)
 
     
     def recieveHit(self, obj, damage, player):
@@ -730,7 +687,7 @@ class Player():
             self.events.dead = 1
             self.env.removeDynamicObject(self)
             self.env.removePlayer(self)
-            self.env.sounds.append((9, *self.pos, 0.8))
+            self.env.addSound("playerdie", self.pos, 0.8)
 
         if player.team != -1:
             knockback = 3
@@ -763,15 +720,15 @@ class Player():
         if type(obj) in {Arrow, ChargedArrow, Frag, Turret, Spike}:
             self.env.addDynamicObject(obj)
             if isinstance(obj, Spike):
-                self.env.sounds.append((17, *obj.pos, 0.6))
+                self.env.addSound("turretplace", obj.pos, 0.6)
             if isinstance(obj, Turret):
-                self.env.sounds.append((18, *obj.pos, 0.6))
+                self.env.addSound("turretplace", obj.pos, 0.6)
         elif type(obj) in {WoodWall, StoneWall}:
             self.env.addObject(obj)
             if isinstance(obj, WoodWall):
-                self.env.sounds.append((4, *obj.pos, 0.6))
+                self.env.addSound("woodplace", obj.pos, 0.6)
             if isinstance(obj, StoneWall):
-                self.env.sounds.append((5, *obj.pos, 0.6))
+                self.env.addSound("stoneplace", obj.pos, 0.6)
         elif type(obj) in {Heal}:
             dist = self.size + 1.4*obj.size
             dx, dy = dist*math.cos(self.angle), dist*math.sin(self.angle)
@@ -1095,9 +1052,9 @@ class Arrow(Projectile):
 
     def collision(self, obj):
         if isinstance(obj, Player):
-            self.env.sounds.append((15, *self.pos, 0.3))
+            self.env.addSound("arrowhitplayer", self.pos, 0.3)
         else:
-            self.env.sounds.append((14, *self.pos, 0.3))
+            self.env.addSound("arrowhit", self.pos, 0.3)
 
     def display(self):
         rotated_image = pygame.transform.rotate(self.env.sprites.arrow, -(self.angle)/math.pi*180)
@@ -1128,9 +1085,9 @@ class ChargedArrow(Projectile):
 
     def collision(self, obj):
         if isinstance(obj, Player):
-            self.env.sounds.append((15, *self.pos, 0.3))
+            self.env.addSound("arrowhitplayer", self.pos, 0.3)
         else:
-            self.env.sounds.append((14, *self.pos, 0.3))
+            self.env.addSound("arrowhit", self.pos, 0.3)
 
     def display(self):
         rotated_image = pygame.transform.rotate(self.env.sprites.arrow, -(self.angle)/math.pi*180)
@@ -1157,7 +1114,7 @@ class Bullet(Projectile):
         self.size = 10
 
     def collision(self, obj):
-        self.env.sounds.append((8, *self.pos, 0.5))
+        self.env.addSound("bullethit", self.pos, 0.5)
 
     def display(self):
         pygame.draw.circle(self.env.surface, darken(self.env.colors.lightgrey, 0.85), self.pos, self.size)
@@ -1242,7 +1199,7 @@ class Explosion():
     
     def step(self):
         if self.lifetime == 0:
-            self.env.sounds.append((6, *self.pos, 0.5))
+            self.env.addSound("explosion", self.pos, 0.5)
             self.env.removeDynamicObject(self)
             return
         self.lifetime -= 1
@@ -1302,9 +1259,19 @@ class Turret():
         if closest_distance > self.range:
             closest_player = None
         
-        if closest_player is None: return
+        if closest_player is None: 
+            closest_obj = None
+            for obj in self.env.dynamic_objects:
+                if not isinstance(obj, Turret): continue
+                if obj.team != self.team and math.dist(obj.pos, self.pos) < closest_distance:
+                    closest_obj = obj
+                    closest_distance = math.dist(obj.pos, self.pos)
+        else:
+            closest_obj = closest_player
 
-        x2, y2 = closest_player.pos
+        if closest_obj is None: return
+
+        x2, y2 = closest_obj.pos
         dx, dy = x2-self.pos[0], y2-self.pos[1]
 
         self.angle = math.atan2(dy, dx)
@@ -1328,15 +1295,15 @@ class Turret():
                 obj.changeWood(30)
                 obj.changeStone(15)
             self.env.removeDynamicObject(self)
-            self.env.sounds.append((22, *self.pos, 0.5))
-        self.env.sounds.append((10, *self.pos, 0.6))
+            self.env.addSound("stonedie", self.pos, 0.5)
+        self.env.addSound("structurehit", self.pos, 0.6)
     
     def attack(self):
         dx, dy = 20*math.cos(self.angle), 20*math.sin(self.angle)
         obj = Bullet(self.env, np.add(self.pos, (dx, dy)), self.angle, self.team, self.player)
         self.env.addDynamicObject(obj)
         self.attack_tick = self.reload_speed
-        self.env.sounds.append((7, *self.pos, 0.4))
+        self.env.addSound("turretfire", self.pos, 0.4)
 
     def resetState(self):
         self.hit = False
@@ -1390,7 +1357,7 @@ class Bush(StaticObject):
         player.changeFood(damage)
         self.size = 20 - 10 * (1-self.health/20)
         self.scale = self.size/20
-        self.env.sounds.append((2, *self.pos, 1))
+        self.env.addSound("bushhit", self.pos, 1)
 
     def display(self):
         self.env.drawSprite("bush", self.pos, self.health, self.hit)
@@ -1411,8 +1378,8 @@ class Tree(StaticObject):
         player.changeWood(damage)
         self.size = 30 - 10 * (1-self.health/20)
         self.scale = self.size/30
-        self.env.sounds.append((3, *self.pos, 0.8))
-        self.env.sounds.append((2, *self.pos, 0.4))
+        self.env.addSound("woodhit", self.pos, 0.8)
+        self.env.addSound("bushhit", self.pos, 0.4)
 
     def display(self):
         self.env.drawSprite("tree", self.pos, self.health, self.hit)
@@ -1432,7 +1399,7 @@ class Stone(StaticObject):
     def recieveHitPlayer(self, player, damage):
         player.changeStone(damage)
         self.size = 40 - 20 * (1-self.health/50)
-        self.env.sounds.append((1, *self.pos, 1))
+        self.env.addSound("stonehit", self.pos, 1)
 
     def display(self):
         self.env.drawSprite("stone", self.pos, self.health, self.hit)
@@ -1456,10 +1423,10 @@ class WoodWall(StaticObject):
 
     def recieveHitPlayer(self, player, damage):
         self.health += damage//3 - damage
-        self.env.sounds.append((3, *self.pos, 0.4))
+        self.env.addSound("woodhit", self.pos, 0.4)
         if self.health <= 0:
             player.changeWood(5)
-            self.env.sounds.append((21, *self.pos, 0.3))
+            self.env.addSound("wooddie", self.pos, 0.3)
     
     def recieveHitObject(self, obj):
         if isinstance(obj, Bullet):
@@ -1467,7 +1434,7 @@ class WoodWall(StaticObject):
             self.health -= 2
         
         if self.health < 0:
-            self.env.sounds.append((21, *self.pos, 0.3))
+            self.env.addSound("wooddie", self.pos, 0.3)
 
     def display(self):
         pygame.draw.polygon(self.env.surface, self.white if self.hit else self.darken_brown, polygon(self.pos, self.size, 8))
@@ -1493,17 +1460,17 @@ class StoneWall(StaticObject):
 
     def recieveHitPlayer(self, player, damage):
         self.health += damage//3 - damage
-        self.env.sounds.append((4, *self.pos, 0.6))
+        self.env.addSound("stoneplace", self.pos, 0.6)
         if self.health <= 0:
             player.changeStone(8)
-            self.env.sounds.append((22, *self.pos, 0.5))
+            self.env.addSound("stonedie", self.pos, 0.5)
     
     def recieveHitObject(self, obj):
         if isinstance(obj, Bullet):
             self.hit = True
             self.health -= 2
         if self.health < 0:
-            self.env.sounds.append((22, *self.pos, 0.5))
+            self.env.addSound("stonedie", self.pos, 0.5)
 
     def display(self):
         pygame.draw.polygon(self.env.surface, self.env.colors.white if self.hit else self.darken_grey, polygon(self.pos, self.size, 8))
@@ -1535,8 +1502,8 @@ class Spike(StaticObject):
             player.changeWood(4)
             player.changeStone(4)
             self.env.removeDynamicObject(self)
-            self.env.sounds.append((21, *self.pos, 0.3))
-        self.env.sounds.append((10, *self.pos, 0.6))
+            self.env.addSound("wooddie", self.pos, 0.3)
+        self.env.addSound("structurehit", self.pos, 0.6)
     
     def recieveHitObject(self, obj):
         if isinstance(obj, Bullet):
@@ -1544,7 +1511,7 @@ class Spike(StaticObject):
             self.health -= 2
         if self.health <= 0:
             self.env.removeDynamicObject(self)
-            self.env.sounds.append((21, *self.pos, 0.3))
+            self.env.addSound("wooddie", self.pos, 0.3)
     
     def step(self):
         self.count += 1
@@ -1594,13 +1561,13 @@ class Base(StaticObject):
             else:
                 p.events.damage_dealt_base += damage
         
-        self.env.sounds.append((10, *self.pos, 0.6))
-        self.env.sounds.append((19, *self.pos, 0.4))
-        self.env.sounds.append((20, *self.pos, 0.3))
+        self.env.addSound("structurehit", self.pos, 0.6)
+        self.env.addSound("basehit", self.pos, 0.4)
+        self.env.addSound("basedie", self.pos, 0.3)
         
         if self.health <= 0:
             self.env.removeDynamicObject(self)
-            self.env.sounds.append((20, *self.pos, 0.8))
+            self.env.addSound("basedie", self.pos, 0.8)
     
     def step(self):
         if self.health > 0:
@@ -1938,6 +1905,9 @@ class RaiderEnvironment():
         obs = self.getInputs()
         info = [p.events for p in self.players]
         return obs, info
+    
+    def addSound(self, sound, pos, scale):
+        self.sounds.append((SoundUtils.encodeSoundID(sound), *pos, scale))
 
     def addDeposits(self, bushes=(70,6), trees=(100,8), stones=(40,4)):        
         for _ in range(stones[0]):

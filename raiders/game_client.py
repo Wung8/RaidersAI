@@ -348,7 +348,8 @@ class GameClient:
                         elif kills < 5:
                             kill_color = (255, 215, 0)
                         else:
-                            kill_color = (255, 40, 0)
+                            colorscale = (min(10, kills)-5) / 5
+                            kill_color = ((1-colorscale)*255+colorscale*140, (1-colorscale)*40, colorscale*120)
 
                         if obj[3] > 0:
                             color = (255,255,255)
@@ -383,6 +384,7 @@ class GameClient:
                     self.screen.blit(scaled_surface, scaled_rect)
                     pygame.display.flip()
 
+                    px, py = info["positions"][abs(self.hover_player)]
                     for sound in sounds:
                         sound_id, sx, sy, sc = sound
                         dist = math.dist((px, py), (sx, sy))
@@ -397,13 +399,14 @@ class GameClient:
                     if info["names"][self.player_id] != self.name_box.text:
                         new_name = self.name_box.text
                         msg["name"] = new_name
-                        self.config["name"] = new_name
-                        try:
-                            with open(self.config_path, "w") as f:
-                                yaml.safe_dump(self.config, f)
-                            print(f"[client] Saved new player name: {new_name}")
-                        except Exception as e:
-                            print(f"[client] Failed to save name: {e}")
+                        if self.config["name"] != new_name:
+                            self.config["name"] = new_name
+                            try:
+                                with open(self.config_path, "w") as f:
+                                    yaml.safe_dump(self.config, f)
+                                print(f"[client] Saved new player name: {new_name}")
+                            except Exception as e:
+                                print(f"[client] Failed to save name: {e}")
                     send_msg(self.sock, msg)
 
 
