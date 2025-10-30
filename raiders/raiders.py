@@ -209,7 +209,7 @@ class StaticDisplays:
     def Player_staticDisplay(surface, pos, info):
         x, y = pos
         # (type, x, y, health, angle, hit, r, g, b)
-        _, _, _, health, angle, hit, r, g, b, active, attack_tick, frames, _ = info
+        _, _, _, health, angle, hit, r, g, b, active, attack_tick, frames, _, _ = info
         if health <= 0:
             return
         color = (r, g, b)
@@ -512,6 +512,7 @@ class Player():
         self.last_active = 1
 
         self.hit_objects = set()
+        self.kills = 0
         self.resetEvents()
 
     def resetEvents(self):
@@ -725,6 +726,7 @@ class Player():
                 player.changeFood(20 + self.food//6)
                 player.changeWood(20 + self.wood//6)
                 player.changeStone(20 + self.stone//6)
+                player.kills += 1
             self.events.dead = 1
             self.env.removeDynamicObject(self)
             self.env.removePlayer(self)

@@ -7,6 +7,7 @@ import sys
 import time
 import math
 import ctypes
+import yaml
 
 import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'
@@ -76,6 +77,7 @@ class InputBox:
 class GameClient:
     def __init__(self, server_ip, port, player_id):
         pygame.init()
+
         self.server_ip = server_ip
         self.port = port
         self.player_id = player_id
@@ -86,6 +88,19 @@ class GameClient:
         self.sock.settimeout(None)  # blocking for main loop
         # register with server
         send_msg(self.sock, {'type': 'register', 'player_id': self.player_id})
+
+        # Load controls from YAML
+        self.config_path = "preferences.yaml"
+        try:
+            with open(self.config_path, "r") as f:
+                self.config = yaml.safe_load(f)
+            self.controls = self.config.get("controls", {})
+            self.name = self.config.get("name", f"Player{self.player_id}")
+        except Exception as e:
+            print(f"[client] Failed to load {self.config_path}: {e}")
+            exit()
+            self.controls = {}
+            self.name = f"Player{self.player_id}"
 
         # setup pygame window (will resize to incoming frames)
         user32 = ctypes.windll.user32
@@ -99,7 +114,7 @@ class GameClient:
         # Input boxes
         self.ip_box = InputBox(self.screen_width - 260, 10, 200, 35, text=self.server_ip, placeholder="IP Address")
         self.port_box = InputBox(self.screen_width - 260, 55, 200, 35, text=str(self.port), placeholder="Port")
-        self.name_box = InputBox(self.screen_width - 260, 100, 200, 35, text=f"Player{self.player_id}", placeholder="Name")
+        self.name_box = InputBox(self.screen_width - 260, 100, 200, 35, text=self.name, placeholder="Name")
 
 
         self.surface = pygame.Surface((800, 800))
@@ -113,7 +128,7 @@ class GameClient:
         self.stone_img = pygame.image.load("assets/stone.png")
         self.font = pygame.font.Font(None, 30) 
         self.font2 = pygame.font.Font(None, 25) 
-        self.name_font = pygame.font.Font(None, 30) 
+        self.name_font = pygame.font.SysFont("segoeuiemoji", 20) 
         self.last_action = (1,1,0,0,0)
         self.name = ""
 
@@ -151,30 +166,44 @@ class GameClient:
             return (1, 1, 0, 0, 2)
 
         keys = pygame.key.get_pressed()
+        mouse = pygame.mouse.get_pressed()
 
-        # --- Active ability / weapon selection ---
-        active = 0
-        if keys[pygame.K_1]: active = 1
-        if keys[pygame.K_2]: active = 2
-        if keys[pygame.K_3]: active = 3
-        if keys[pygame.K_4]: active = 4
-        if keys[pygame.K_5]: active = 5
-        if keys[pygame.K_6]: active = 6
-        if keys[pygame.K_q]: active = 7
-        if keys[pygame.K_r]: active = 8
-        if keys[pygame.K_e]: active = 9
+        # Utility: map a string like "w" → pygame.K_w
+        def keycode(k):
+            if len(k) == 1 and k.isalnum():
+                return getattr(pygame, f"K_{k}")
+            special = {
+                "mouse_left": ("mouse", 0),
+                "mouse_right": ("mouse", 2),
+                "mouse_middle": ("mouse", 1),
+            }
+            return special.get(k, None)
 
-        # --- Movement (starts at 1,1 and adjusts with WASD) ---
+        # --- Movement (starts at 1,1 and adjusts with YAML keys) ---
         ax, ay = 1, 1
-        if keys[pygame.K_a]: ax -= 1
-        if keys[pygame.K_d]: ax += 1
-        if keys[pygame.K_s]: ay -= 1
-        if keys[pygame.K_w]: ay += 1
+        if keys[getattr(pygame, f"K_{self.controls.get('left', 'a')}")]: ax -= 1
+        if keys[getattr(pygame, f"K_{self.controls.get('right', 'd')}")]: ax += 1
+        if keys[getattr(pygame, f"K_{self.controls.get('down', 's')}")]: ay -= 1
+        if keys[getattr(pygame, f"K_{self.controls.get('up', 'w')}")]: ay += 1
 
-        # --- Action (attack or similar) ---
-        action = pygame.mouse.get_pressed()[0]
+        # --- Active item selection ---
+        active = 0
+        for i, name in enumerate(
+            ["sword", "bow", "axe", "frag", "wood_wall", "stone_wall", "spike", "turret", "heal"], start=1
+        ):
+            key_str = self.controls.get(name)
+            if key_str and len(key_str) == 1 and keys[getattr(pygame, f"K_{key_str}")]:
+                active = i
 
-        # --- Angle computation based on mouse vs. screen center ---
+        # --- Place/Attack ---
+        place_key = self.controls.get("place_attack", "mouse_left")
+        if place_key.startswith("mouse"):
+            idx = {"mouse_left": 0, "mouse_middle": 1, "mouse_right": 2}[place_key]
+            action = mouse[idx]
+        else:
+            action = keys[getattr(pygame, f"K_{place_key}")]
+
+        # --- Angle computation (unchanged) ---
         mx, my = pygame.mouse.get_pos()
         window_w, window_h = self.screen.get_size()
         margin = (window_w - window_h) / 2
@@ -183,7 +212,6 @@ class GameClient:
         target_angle = -math.atan2(dy, dx)
 
         self.last_action = (ax, ay, active, action, target_angle)
-
         return self.last_action
 
 
@@ -314,16 +342,30 @@ class GameClient:
                     scale = window_size[1] / 600
 
                     for n, obj in enumerate(players):
+                        kills = obj[13]
+                        if kills < 3:
+                            kill_color = (255, 255, 255)
+                        elif kills < 5:
+                            kill_color = (255, 215, 0)
+                        else:
+                            kill_color = (255, 40, 0)
+
                         if obj[3] > 0:
                             color = (255,255,255)
                         else:
                             color = (190,190,190)
+                            kill_color = color
 
                         dx, dy = obj[1]-player_pos[0], obj[2]-player_pos[1]
                         screen_pos = screen_pos2[n]
-                        text_surf = self.name_font.render(str(info["names"][obj[12]]), True, color)
+                        text_surf = self.name_font.render(f"{str(info['names'][obj[12]])}", True, color)
                         text_rect = text_surf.get_rect(center=(scale * screen_pos[0], scale * (600-screen_pos[1]-40)))
                         frame_surf.blit(text_surf, text_rect)
+                        if kills > 0:
+                            kill_surf = self.name_font.render(f"💀{obj[13]}", True, color)
+                            kill_surf.fill(kill_color + (255,), special_flags=pygame.BLEND_RGBA_MULT)
+                            kill_rect = kill_surf.get_rect(center=(text_rect.center[0], text_rect.center[1]-25))
+                            frame_surf.blit(kill_surf, kill_rect)
 
                     for img, text, y in zip(
                         (self.food_img, self.wood_img, self.stone_img), 
@@ -353,7 +395,15 @@ class GameClient:
                     action = self.build_action_from_input(player_angle, relative_pos)
                     msg = {'type': 'action', 'player_id': self.player_id, 'action': action}
                     if info["names"][self.player_id] != self.name_box.text:
-                        msg["name"] = self.name_box.text
+                        new_name = self.name_box.text
+                        msg["name"] = new_name
+                        self.config["name"] = new_name
+                        try:
+                            with open(self.config_path, "w") as f:
+                                yaml.safe_dump(self.config, f)
+                            print(f"[client] Saved new player name: {new_name}")
+                        except Exception as e:
+                            print(f"[client] Failed to save name: {e}")
                     send_msg(self.sock, msg)
 
 

@@ -1,0 +1,16 @@
+controls:
+  axe: '3'
+  bow: '2'
+  down: s
+  frag: '4'
+  heal: e
+  left: a
+  place_attack: mouse_left
+  right: d
+  spike: q
+  stone_wall: '6'
+  sword: '1'
+  turret: r
+  up: w
+  wood_wall: '5'
+name: :)

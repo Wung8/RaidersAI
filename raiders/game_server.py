@@ -139,7 +139,7 @@ class GameServer:
         info = (0, 0, 0, 0, 0, 0, 0, 0, 0)
         match type(obj):
             case raiders.Player:
-                info = (-1, obj.pos[0], obj.pos[1], obj.health, obj.angle, obj.hit, *obj.color, obj.active, obj.attack_tick, obj.frames, obj.id_)
+                info = (-1, obj.pos[0], obj.pos[1], obj.health, obj.angle, obj.hit, *obj.color, obj.active, obj.attack_tick, obj.frames, obj.id_, obj.kills)
             case raiders.Heal:
                 info = (0, obj.pos[0], obj.pos[1], 0, 0, 0, 0, 0, 0)
             case raiders.Arrow:
@@ -310,11 +310,11 @@ if __name__ == "__main__":
     # For now, we pass an empty agent_scripts list so server still runs and uses only player actions and default agents.
     myip = "127.0.0.1"
     agent_scripts = [
-        ([i for i in range(1,3)], env_utils.agents.BasicAgent()),
-        ([i for i in range(3,8)], env_utils.agents.BasicAgent()),
+        ([i for i in range(2,4)], env_utils.agents.BasicAgent()),
+        ([i for i in range(4,11)], env_utils.agents.BasicAgent()),
         #([6,7,8,9,10], env_utils.agents.BasicAgent())
     ]
-    server = GameServer(host=myip, port=9999, teams=[3,5], agent_scripts=agent_scripts)
+    server = GameServer(host=myip, port=9999, teams=[4,7], agent_scripts=agent_scripts)
     accept_thread = threading.Thread(target=server.accept_loop, daemon=True)
     accept_thread.start()
     server.game_loop()
