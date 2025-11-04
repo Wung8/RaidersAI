@@ -2,22 +2,54 @@ class BaseAgent():
     def __init__(self):
         pass
 
-    def initialize(self, agent_ids, team):
-        # agent script initialization
+    def initialize(self, team):
+        # agent script initialization, assume the team will not change
         '''
         INPUTS:
-        agent_id is a list of id's (ints) that the script is responsible for controlling
-        team is either 1 (defender) or 2 (raider)
+        team is a string, either "raider" or "defender"
 
         no outputs necessary
         '''
         pass
 
-    def step(self, observations, team_observations):
+    def addAgent(self, id_):
+        # register new agent id that this script will be controlling
+        '''
+        INPUTS:
+        id_ is the id of the new agent that this script will control
+
+        OUTPUTS:
+        a string representing the name you want to call the new agent
+        '''
+        pass
+
+    def removeAgent(self, id_):
+        # unregister agent id that this script will no longer be controlling
+        '''
+        INPUTS:
+        id_ is the id of the agent that this script will no longer control
+
+        no outputs necessary
+        '''
+        pass
+
+    def handleTeamObservation(self, team_observation):
+        # handle team coordination, called before getting the actions of individual agents
+        '''
+        INPUTS:
+        team_observations is a dictionary of observations, one for each agent on your team, regardless if
+        your script controls them or not. observations can be accessed using "team_observations[id_]". 
+        observations are explained further in the getAction function
+
+        no outputs necessary
+        '''
+        pass
+
+    def getAction(self, observation, id_):
         # each agent outputs an action when step is called
         '''
         INPUTS:
-        observations is a list of observations, observations are defined as nested AttrDicts
+        observation is a nested AttrDict (a dictionary where you access values like "dict.key" instead of "dict['key']")
         observation:
             metadata: 
                 colors: color information
@@ -74,8 +106,4 @@ class BaseAgent():
 
         no outputs necessary
         '''
-        pass
-
-    def getNames(self):
-        # return the names of your agents as strings, just for fun
         pass

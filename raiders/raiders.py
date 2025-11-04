@@ -686,7 +686,6 @@ class Player():
                 player.kills += 1
             self.events.dead = 1
             self.env.removeDynamicObject(self)
-            self.env.removePlayer(self)
             self.env.addSound("playerdie", self.pos, 0.8)
 
         if player.team != -1:
@@ -1109,7 +1108,7 @@ class ChargedArrow(Projectile):
 class Bullet(Projectile):
     def __init__(self, env, pos, angle, team, player):
         super().__init__(env, pos, angle, team, player)
-        self.damage = 4
+        self.damage = 5
         self.speed = 15
         self.size = 10
 
@@ -1236,9 +1235,9 @@ class Turret():
         self.angle = angle
         self.color = self.player.color
 
-        self.health = 30
-        self.damage = 4
-        self.reload_speed = 60
+        self.health = 25
+        self.damage = 5
+        self.reload_speed = 50
         self.attack_tick = 30
         self.range = 400
         self.size = 20
@@ -1250,7 +1249,7 @@ class Turret():
 
         closest_player = None
         closest_distance = math.inf
-        for player in self.env.players:
+        for player in self.env.getPlayers():
             if player.health <= 0: continue
             if player.team != self.team and math.dist(player.pos, self.pos) < closest_distance:
                 closest_player = player
@@ -1514,12 +1513,12 @@ class Spike(StaticObject):
             self.env.addSound("wooddie", self.pos, 0.3)
     
     def step(self):
-        self.count += 1
-        if self.count == 4:
-            for player in self.env.players:
+        self.count -= 1
+        if self.count <= 0:
+            for player in self.env.getPlayers():
                 if player.team != self.team and math.dist(player.pos, self.pos) < player.size + self.size + 2:
                     player.recieveHit(self, self.damage, self.player)
-            self.count = 0
+            self.count = 5
 
     def display(self):
         self.env.drawSprite(f"spike{self.team}", self.pos, -1, self.hit)
@@ -1555,7 +1554,7 @@ class Base(StaticObject):
         else:
             player.events.self_damage_dealt_base += damage
 
-        for p in self.env.players:
+        for p in self.env.getPlayers():
             if p.team == self.team:
                 p.events.damage_dealt_base -= damage
             else:
@@ -1744,7 +1743,27 @@ class RaiderEnvironment():
 
         self.initializeSprites()
 
+        self.players = {}
         self.reset()
+
+    def getPlayers(self):
+        return tuple(self.players.values())
+
+    def addPlayer(self, id_, team):
+        team = 1 if team=="defender" else 2
+        player = Player(self, (-1,-1), team, id_)
+        if team == 1:
+            self.setSpawnLoc(self.map_size[0]*0.12, player)
+        else:
+            self.setSpawnLoc(self.map_size[0]*0.4, player)
+        self.players[id_] = player
+        self.dynamic_objects.append(player)
+
+    def removePlayer(self, id_):
+        player = self.players[id_]
+        if player in self.dynamic_objects:
+            self.dynamic_objects.remove(player)
+        del self.players[id_]
 
     def initializeSprites(self):
         self.sprites = AttrDict({
@@ -1864,12 +1883,11 @@ class RaiderEnvironment():
         rect = sprite_surface.get_rect(center=pos)
         self.surface.blit(sprite_surface, rect)
 
-    def reset(self, teams=[5,5]):
+    def reset(self):
         self.grid = Grid(self, 200)
         self.base = Base(self, (self.map_size[0]/2, self.map_size[1]/2), 1)
         self.storm_size = self.max_storm_size
         self.t = 0
-        self.teams = teams
 
         self.metadata.time = self.t
         self.metadata.storm_size = self.storm_size
@@ -1879,32 +1897,32 @@ class RaiderEnvironment():
         self.effects = []
         self.sounds = []
         
-
-        id_ = -1
-        self.players = []
-        for i in range(teams[0]):
-            id_ += 1
-            player = Player(self, (-1,-1), 1, id_)
-            player.food = 50
-            player.wood = 120
-            player.stone = 120
-            self.setSpawnLoc(self.map_size[0]*0.12, player)
-            self.players.append(player)
-        for i in range(teams[1]):
-            id_ += 1
-            player = Player(self, (-1,-1), 2, id_)
-            player.food = 80
-            player.wood = 50
-            player.stone = 50
-            self.setSpawnLoc(self.map_size[0]*0.4, player)
-            self.players.append(player)
-
-        self.dynamic_objects = [player for player in self.players]
+        for id_, player in self.players.items():
+            team = player.team
+            player = Player(self, (-1,-1), team, id_)
+            player.food, player.wood, player.stone = (50, 120, 120) if team==1 else (80, 50, 50)
+            self.setSpawnLoc(self.map_size[0] * [0.12, 0.4][team-1], player)
+            self.players[id_] = player
+        
+        self.dynamic_objects = [player for player in self.players.values()]
         self.addDynamicObject(self.base)
 
-        obs = self.getInputs()
-        info = [p.events for p in self.players]
-        return obs, info
+        observations = {}
+        info = {"team_observations": {"defender": {}, "raider": {}} }
+        for id_, player in self.players.items():
+            team = "defender" if player.team==1 else "raider"
+            obs = self.getInputs(id_)
+            info["team_observations"][team][id_] = obs
+            observations[id_] = obs
+        info = AttrDict(info)
+        return observations, info
+    
+    def getTeamCounts(self):
+        teams = [0,0]
+        for id_, player in self.players.items():
+            team = player.team
+            teams[team-1] += 1
+        return teams
     
     def addSound(self, sound, pos, scale):
         self.sounds.append((SoundUtils.encodeSoundID(sound), *pos, scale))
@@ -1978,17 +1996,13 @@ class RaiderEnvironment():
             return
         self.dynamic_objects.remove(obj)
     
-    def removePlayer(self, player):
-        #self.players.remove(player)
-        pass
-    
     def addEffect(self, obj):
         self.effects.append(obj)
     
     def removeEffect(self, obj):
         self.effects.remove(obj)
 
-    def step(self, actions=False, display=False):
+    def step(self, actions, display=False):
         self.t += 1
         self.storm_size = max(0, min(1, (self.t - 180*20) / (300*20 - 180*20))) * (self.min_storm_size - self.max_storm_size) + self.max_storm_size
         self.metadata.time = self.t
@@ -1998,8 +2012,7 @@ class RaiderEnvironment():
         for obj in self.objects + self.dynamic_objects:
             obj.resetState()
 
-        penalties = [0 for p in self.players] 
-        for n, action in enumerate(actions):
+        for n, action in actions.items():
             if self.players[n].health <= 0: continue
             # check to see if actions are valid
             ax, ay, active, action_, angle = action
@@ -2015,12 +2028,6 @@ class RaiderEnvironment():
             angle = 0.0981747704247 * (action[4]-2) * (abs(action[4]-2))
             self.players[n].step(dx, dy, active, attack, angle)
 
-            penalty = 0
-            if active != 0:
-                penalty += 0.01
-            penalty += abs(angle) / 22.5 * 0.005
-            penalties[n] = penalty
-
         for obj in self.dynamic_objects:
             if isinstance(obj, Player):
                 continue
@@ -2030,7 +2037,7 @@ class RaiderEnvironment():
             obj.step()
 
         if self.t % 20 == 0:
-            for player in self.players:
+            for player in self.getPlayers():
                 if math.dist(player.pos, self.center) > self.storm_size:
                     player.recieveHit(self.dummy_player, 5, self.dummy_player)
 
@@ -2051,7 +2058,7 @@ class RaiderEnvironment():
             if isinstance(obj, Player) or isinstance(obj, Base):
                 continue
             obj.display() 
-        for obj in self.players:
+        for obj in self.getPlayers():
             if obj.health <= 0: 
                 continue
             obj.display()
@@ -2065,7 +2072,7 @@ class RaiderEnvironment():
         pygame.draw.circle(mask, (0, 0, 0, 0), self.center, int(self.storm_size))  # transparent center
         self.surface.blit(mask, (0, 0))
 
-        for player in self.players:
+        for player in self.getPlayers():
             if player.health <= 0:
                 continue
             bar_width = 40
@@ -2076,19 +2083,28 @@ class RaiderEnvironment():
                 absorption_ratio = health_ratio - 1
                 pygame.draw.rect(self.surface, (255,220,90), (player.pos[0]+(bar_width-3)*(0.5-absorption_ratio), player.pos[1]+21, (bar_width-3)*absorption_ratio, 3))
 
-        done = ((self.base.health <= 0) or (self.t > 10*60*20) or \
-                (0 == sum([max(0, p.health) for p in self.players[:self.teams[0]]])) or (0 == sum([max(0, p.health) for p in self.players[self.teams[0]:]])))
+        done = self.gameIsDone()
+        
+        #((self.base.health <= 0) or (self.t > 10*60*20) or \
+        #        (0 == sum([max(0, p.health) for p in self.players[:self.teams[0]]])) or (0 == sum([max(0, p.health) for p in self.players[self.teams[0]:]])))
 
-        obs = self.getInputs()
+        observations = {}
+        info = {"team_observations": {"defender": {}, "raider": {}} }
+        for id_, player in self.players.items():
+            team = "defender" if player.team==1 else "raider"
+            obs = self.getInputs(id_)
+            info["team_observations"][team][id_] = obs
+            observations[id_] = obs
+        info = AttrDict(info)
+
         if not done:
             reward = 0
         else:
             if self.base.health <= 0:
-                reward = [[0,20][done] * 2*((p.team==self.base.team)-0.5) - penalties[n] for n,p in enumerate(self.players)]
+                reward = {n:[0,20][done] * 2*((p.team==self.base.team)-0.5) for n,p in self.players.items()}
             else:
                 reward = 1
         term = False
-        info = [p.events for p in self.players]
 
         if display:
             frame = self.camera.getFrame(self.surface)
@@ -2097,60 +2113,69 @@ class RaiderEnvironment():
             pygame.display.flip()
             self.clock.tick(20)
 
-        return obs, reward, done, term, info
+        return observations, reward, done, term, info
+
+    def gameIsDone(self):
+        if self.base.health <= 0:
+            return True
+        teams = [0,0]
+        for player in self.getPlayers():
+            if player.health <= 0: continue
+            teams[player.team-1] += 1
+        if teams[0] == 0:
+            return True
+        if teams[1] == 0:
+            return True
+        return False
+
+        #((self.base.health <= 0) or (self.t > 10*60*20) or \
+        #        (0 == sum([max(0, p.health) for p in self.players[:self.teams[0]]])) or (0 == sum([max(0, p.health) for p in self.players[self.teams[0]:]])))
 
     
-    def getInputs(self):
-        old_center = self.camera.frame_rect.center
-        old_scale = self.camera.scale
-        inputs = []
-
+    def getInputs(self, id_):
         scale = 0.25
         h, w = int(self.map_size[0] * scale), int(self.map_size[1] * scale)
         small_surface = pygame.transform.scale(self.surface, (w, h))
         np_surface = pygame.surfarray.pixels3d(small_surface)
 
+        player = self.players[id_]
 
-        for player in self.players:
-            x, y = int(player.pos[0]*scale), int(player.pos[1]*scale)
-            w, h = int(600*scale), int(600*scale)
-            x, y, w, h = [int(_) for _ in [x,y,w,h]]
-            obs = np_surface[x:x+w , y:y+h]
+        x, y = int(player.pos[0]*scale), int(player.pos[1]*scale)
+        w, h = int(600*scale), int(600*scale)
+        x, y, w, h = [int(_) for _ in [x,y,w,h]]
+        obs = np_surface[x:x+w , y:y+h]
 
-            vec_obs = np.array([
-                (player.team),
-                (max(0,player.health)**0.5)/5,
-                (max(0,player.food)**0.5)/20,
-                (max(0,player.wood)**0.5)/25,
-                (max(0,player.stone)**0.5)/20,
-            ], dtype=np.float32)
+        vec_obs = np.array([
+            (player.team),
+            (max(0,player.health)**0.5)/5,
+            (max(0,player.food)**0.5)/20,
+            (max(0,player.wood)**0.5)/25,
+            (max(0,player.stone)**0.5)/20,
+        ], dtype=np.float32)
 
-            info = AttrDict({
-                "metadata": self.metadata,
-                "image_obs": obs,
-                "vector_obs": vec_obs,
-            })
+        info = AttrDict({
+            "metadata": self.metadata,
+            "image_obs": obs,
+            "vector_obs": vec_obs,
+        })
 
-            for type in ("base", "spike", "stonewall", "woodwall", "turret", "stone", "tree", "bush", "explosion", "frag", "bullet", "chargedarrow", "arrow", "heal", "player"):
-                info[type] = []
+        for type in ("base", "spike", "stonewall", "woodwall", "turret", "stone", "tree", "bush", "explosion", "frag", "bullet", "chargedarrow", "arrow", "heal", "player"):
+            info[type] = []
 
-            info["self"] = player.getInfo()
-            objects = self.grid.getNearbyObjects(player.pos, size=2) + self.dynamic_objects + self.effects
-            for obj in objects:
-                dx, dy = obj.pos[0]-player.pos[0], obj.pos[1]-player.pos[1]
-                if abs(dx) > 320 or abs(dy) > 320:
-                    continue
+        info["self"] = player.getInfo()
+        objects = self.grid.getNearbyObjects(player.pos, size=2) + self.dynamic_objects + self.effects
+        for obj in objects:
+            dx, dy = obj.pos[0]-player.pos[0], obj.pos[1]-player.pos[1]
+            if abs(dx) > 320 or abs(dy) > 320:
+                continue
 
-                obj_info = obj.getInfo()
-                if obj_info["type"] == "player" and obj_info["team"] != player.team: # hide resource information of opponents
-                    del obj_info["food"]
-                    del obj_info["wood"]
-                    del obj_info["stone"]
-                obj_info["relative_position"] = (dx, dy)
-                info[obj_info["type"]].append(obj_info)
+            obj_info = obj.getInfo()
+            if obj_info["type"] == "player" and obj_info["team"] != player.team: # hide resource information of opponents
+                del obj_info["food"]
+                del obj_info["wood"]
+                del obj_info["stone"]
+            obj_info["relative_position"] = (dx, dy)
+            info[obj_info["type"]].append(obj_info)
 
-            inputs.append(info)
-
-        self.camera.frame_rect.center = old_center
-        return inputs
+        return info
 

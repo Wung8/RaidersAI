@@ -8,6 +8,7 @@ import time
 import math
 import ctypes
 import yaml
+import traceback
 
 import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'
@@ -15,6 +16,46 @@ os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'
 import raiders
 MSG_LEN_STRUCT = struct.Struct("!I")
 
+KEY_ALIASES = {
+    # Arrows
+    "up_arrow": pygame.K_UP,
+    "down_arrow": pygame.K_DOWN,
+    "left_arrow": pygame.K_LEFT,
+    "right_arrow": pygame.K_RIGHT,
+
+    # Common modifiers
+    "space": pygame.K_SPACE,
+    "shift": pygame.K_LSHIFT,
+    "ctrl": pygame.K_LCTRL,
+    "alt": pygame.K_LALT,
+
+    # Mouse buttons (we'll represent them separately)
+    "mouse_left": 1,
+    "mouse_middle": 2,
+    "mouse_right": 3,
+}
+
+def key_from_name(name: str):
+    """
+    Convert a human-readable key name (like 'w', 'right_arrow', or 'mouse_left')
+    into a pygame key constant (for keyboard) or mouse button code (for mouse).
+    """
+    name = str(name).lower().strip()
+
+    # Handle special names
+    if name in KEY_ALIASES:
+        return KEY_ALIASES[name]
+
+    # Handle letters or numbers (e.g. 'a', '5')
+    if len(name) == 1:
+        return getattr(pygame, f"K_{name}")
+
+    # Allow numeric key codes directly
+    try:
+        return int(name)
+    except ValueError:
+        raise ValueError(f"Unknown key or button name: '{name}'")
+    
 
 def send_msg(sock, obj):
     data = pickle.dumps(obj)
@@ -75,19 +116,20 @@ class InputBox:
 
 
 class GameClient:
-    def __init__(self, server_ip, port, player_id):
+    def __init__(self, server_ip, port, team):
         pygame.init()
 
         self.server_ip = server_ip
         self.port = port
-        self.player_id = player_id
-        self.hover_player = player_id
+        self.team = team
+        self.player_id = None
+        self.hover_player = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(5.0)
         self.sock.connect((server_ip, port))
         self.sock.settimeout(None)  # blocking for main loop
         # register with server
-        send_msg(self.sock, {'type': 'register', 'player_id': self.player_id})
+        send_msg(self.sock, {'type': 'register', 'team': team})
 
         # Load controls from YAML
         self.config_path = "preferences.yaml"
@@ -95,6 +137,7 @@ class GameClient:
             with open(self.config_path, "r") as f:
                 self.config = yaml.safe_load(f)
             self.controls = self.config.get("controls", {})
+            self.controls = {action: key_from_name(key) for action, key in self.controls.items()}
             self.name = self.config.get("name", f"Player{self.player_id}")
         except Exception as e:
             print(f"[client] Failed to load {self.config_path}: {e}")
@@ -131,6 +174,7 @@ class GameClient:
         self.name_font = pygame.font.SysFont("segoeuiemoji", 20) 
         self.last_action = (1,1,0,0,0)
         self.name = ""
+        self.id = -1
 
     def draw_ui(self):
         # Draw close button
@@ -168,42 +212,40 @@ class GameClient:
         keys = pygame.key.get_pressed()
         mouse = pygame.mouse.get_pressed()
 
-        # Utility: map a string like "w" → pygame.K_w
-        def keycode(k):
-            if len(k) == 1 and k.isalnum():
-                return getattr(pygame, f"K_{k}")
-            special = {
-                "mouse_left": ("mouse", 0),
-                "mouse_right": ("mouse", 2),
-                "mouse_middle": ("mouse", 1),
-            }
-            return special.get(k, None)
-
-        # --- Movement (starts at 1,1 and adjusts with YAML keys) ---
+        # --- Movement ---
         ax, ay = 1, 1
-        if keys[getattr(pygame, f"K_{self.controls.get('left', 'a')}")]: ax -= 1
-        if keys[getattr(pygame, f"K_{self.controls.get('right', 'd')}")]: ax += 1
-        if keys[getattr(pygame, f"K_{self.controls.get('down', 's')}")]: ay -= 1
-        if keys[getattr(pygame, f"K_{self.controls.get('up', 'w')}")]: ay += 1
+        if keys[self.controls["left"]]:
+            ax -= 1
+        if keys[self.controls["right"]]:
+            ax += 1
+        if keys[self.controls["down"]]:
+            ay -= 1
+        if keys[self.controls["up"]]:
+            ay += 1
 
         # --- Active item selection ---
         active = 0
-        for i, name in enumerate(
-            ["sword", "bow", "axe", "frag", "wood_wall", "stone_wall", "spike", "turret", "heal"], start=1
-        ):
-            key_str = self.controls.get(name)
-            if key_str and len(key_str) == 1 and keys[getattr(pygame, f"K_{key_str}")]:
-                active = i
+        item_order = [
+            "sword", "bow", "axe", "frag",
+            "wood_wall", "stone_wall", "spike", "turret", "heal",
+        ]
+
+        for i, name in enumerate(item_order, start=1):
+            key_code = self.controls.get(name)
+            if key_code and key_code < 300:  # pygame.K_* values are under ~300, mouse buttons are small ints
+                if keys[key_code]:
+                    active = i
 
         # --- Place/Attack ---
-        place_key = self.controls.get("place_attack", "mouse_left")
-        if place_key.startswith("mouse"):
-            idx = {"mouse_left": 0, "mouse_middle": 1, "mouse_right": 2}[place_key]
-            action = mouse[idx]
-        else:
-            action = keys[getattr(pygame, f"K_{place_key}")]
+        place_key = self.controls.get("place_attack")
 
-        # --- Angle computation (unchanged) ---
+        # If it's a mouse button (1–5), check mouse input
+        if place_key in (1, 2, 3, 4, 5):
+            action = mouse[place_key - 1]  # pygame.mouse.get_pressed() returns 0-indexed tuple
+        else:
+            action = keys[place_key]
+
+        # --- Angle computation ---
         mx, my = pygame.mouse.get_pos()
         window_w, window_h = self.screen.get_size()
         margin = (window_w - window_h) / 2
@@ -215,9 +257,20 @@ class GameClient:
         return self.last_action
 
 
+
     def run(self):
+        msg = recv_msg(self.sock)
+        if msg and msg.get("type") == "register_ack":
+            self.player_id = msg["player_id"]
+            print(f"[client] joined team {self.team} as player {self.player_id}")
+        else:
+            print("[client] registration failed")
+            return
+        
         try:
             while self.running:
+                if self.id is None: continue
+
                 # Draw background
                 self.screen.fill((40, 40, 40))
                 self.events = pygame.event.get()
@@ -243,18 +296,21 @@ class GameClient:
                     #img_bytes = msg['img_bytes']
                     size = msg['size']
                     info = msg.get('info')
+                    ids = msg.get('ids')
 
                     if info["healths"][self.player_id] > 0:
                         self.hover_player = self.player_id
                     else:
+                        if self.hover_player not in ids:
+                            self.hover_player = ids[0]
+                        idx = ids.index(self.hover_player)
                         events = self.events
                         for event in events:
                             if event.type == pygame.KEYDOWN:
-                                if event.key == pygame.K_a:
-                                    self.hover_player -= 1
-                                if event.key == pygame.K_d:
-                                    self.hover_player += 1
-                        self.hover_player = self.hover_player % len(info["healths"])
+                                if event.key == self.controls["spectate_1"]:
+                                    self.hover_player = ids[(idx-1)%len(ids)]
+                                if event.key == self.controls["spectate_2"]:
+                                    self.hover_player = ids[(idx+1)%len(ids)]
                         
 
                     player_pos = info["positions"][abs(self.hover_player)]
@@ -428,21 +484,17 @@ class GameClient:
             except:
                 pass
             pygame.quit()
+            traceback.print_exc()
             print("[client] stopped")
 
 
 if __name__ == "__main__":
     # Example usage:
     # python game_client.py <server_ip> <port> <player_id>
-    if len(sys.argv) >= 4:
-        print("connecting to server")
-        server_ip = sys.argv[1]
-        port = int(sys.argv[2])
-        player_id = int(sys.argv[3])
-    else:
-        server_ip = "0.0.0.0"
-        port = 9999
-        player_id = 0
+    server_ip = sys.argv[1]
+    port = int(sys.argv[2])
+    team = str(sys.argv[3])
+    print("connecting to server")
 
-    client = GameClient(server_ip, port, player_id)
+    client = GameClient(server_ip, port, team)
     client.run()

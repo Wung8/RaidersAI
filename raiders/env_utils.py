@@ -48,8 +48,6 @@ def convAngleToAction(player_angle, target_angle):
 class RaiderEnvironmentWrapper():
     def __init__(
         self,
-        teams,
-        agent_scripts,
         mode = "god"
     ):
         self.mode = mode
@@ -61,21 +59,13 @@ class RaiderEnvironmentWrapper():
         self.font = pygame.font.Font(None, 30) 
         self.font2 = pygame.font.Font(None, 25) 
 
-        self.teams = teams
-        self.agent_scripts = agent_scripts
-        self.num_agents = sum(teams)
-
-        for i, (agent_ids, script) in enumerate(self.agent_scripts):
-            script.initialize(agent_ids, 2-(agent_ids[0] < teams[0]))
-            self.agent_scripts[i] = (agent_ids, script)
-            if isinstance(script, PlayerAgent):
-                player_idx = agent_ids[0]
+        self.scripts = []
+        self.active_ids = {}
 
         if mode == "god":
             self.hover_player = 0
             self.camera_mode = "god"
         elif mode == "player":
-            self.hover_player = player_idx
             self.camera_mode = "human"
         
         self.t = time.time()
@@ -84,33 +74,80 @@ class RaiderEnvironmentWrapper():
 
         self.reset()
 
+    def loadAgentScripts(self, agent_scripts):
+        for script, num_agents, team in agent_scripts:
+            self.addScript(script, team)
+            for i in range(num_agents):
+                id_ = self.addAgent(script=script) # team automatically assigned when passing in a script
+
+    def addScript(self, script, team):
+        script.initialize(team)
+        script.__team__ = team
+        self.scripts.append(script)
+
+    def getActiveIDs(self):
+        return tuple(self.active_ids.keys())
+
+    def getAvailableID(self):
+        return max(tuple(self.active_ids.keys()) + (0,))+1
+    
+    def addAgent(self, team=None, script=None):
+        if script is None:
+            if team is None:
+                team_counts = self.env.getTeamCounts()
+                if team_counts[0] < team_counts[1]:
+                    team = 1
+                else:
+                    team = 2
+        else:
+            if team is not None:
+                print("Passing in team to addAgent when a script is assigned will be overrided by the team the script is assigned to")
+            team = script.__team__
+
+        id_ = self.getAvailableID()
+        if script is not None:
+            script.addAgent(id_)
+        self.active_ids[id_] = script
+        self.env.addPlayer(id_, team)
+        self.actions[id_] = [1, 1, 0, 0, 2]
+        return id_
+
+    def removeAgent(self, id_):
+        if id_ not in self.active_ids:
+            print(f"Tried to remove inactive id {id_}")
+        script = self.active_ids[id_]
+        if script is not None:
+            script.removeAgent(id_)
+        self.env.removePlayer(id_)
+        del self.active_ids[id_]
+        del self.actions[id_]
+
     def reset(self):
-        self.actions = [[1, 1, 0, 0, 2] for agent_id in range(self.num_agents)]
-        observations, info = self.env.reset(self.teams)
+        self.actions = {id_: [1, 1, 0, 0, 2] for id_ in self.env.players.keys()}
+        observations, info = self.env.reset()
 
-        team_observations = [ observations[:self.teams[0]], observations[self.teams[0]:] ]
-
-        for agent_ids, agent_script in self.agent_scripts:
-            script_observations = []
-            names = agent_script.getNames()
-            for n, agent_id in enumerate(agent_ids):
-                self.env.players[agent_id].name = names[n]
-                script_observations.append(observations[agent_id])
-            actions = agent_script.step(observations=script_observations, team_observations=team_observations[agent_ids[0] < self.teams[0]])
-            for agent_id, action in zip(agent_ids, actions):
-                self.actions[agent_id] = action
+        for script in self.scripts:
+            team = script.__team__
+            team_observation = info.team_observations[team]
+            script.handleTeamObservation(team_observation)
+        
+        for id_, script in self.active_ids.items():
+            if script is None: continue
+            action = script.getAction(observations[id_], id_)
+            self.actions[id_] = action
 
     def step(self, display=False, debug=False):   
         observations, rewards, terminated, truncated, info = self.env.step(self.actions)
-        team_observations = [ observations[:self.teams[0]], observations[self.teams[0]:] ]
 
-        for (agent_ids, agent_script) in self.agent_scripts:
-            script_observations = []
-            for agent_id in agent_ids:
-                script_observations.append(observations[agent_id])
-            actions = agent_script.step(observations=script_observations, team_observations=team_observations[agent_ids[0] < self.teams[0]])
-            for agent_id, action in zip(agent_ids, actions):
-                self.actions[agent_id] = action
+        for script in self.scripts:
+            team = script.__team__
+            team_observation = info.team_observations[team]
+            script.handleTeamObservation(team_observation)
+        
+        for id_, script in self.active_ids.items():
+            if script is None: continue
+            action = script.getAction(observations[id_], id_)
+            self.actions[id_] = action
         
         if self.mode == "god":
             self.cameraControl()
@@ -130,8 +167,8 @@ class RaiderEnvironmentWrapper():
             self.env.camera.frame_rect.center = player_obj.pos
 
         if debug:
-            for agent_ids, script in self.agent_scripts:
-                script.debug(self.env.surface)
+            for id_, script in self.active_ids.items():
+                script.debug(self.env.surface, id_)
         
         frame = self.env.camera.getFrame(self.env.surface)
         frame = pygame.transform.flip(frame, False, True)
@@ -204,20 +241,18 @@ class RaiderEnvironmentWrapper():
         if keys[pygame.K_UP]: self.env.camera.frame_rect.move_ip(0,10)
         
 pygame.init()
-agents = discoverAgents()
+AgentScripts = discoverAgents()
 
 if __name__ == "__main__":
     agent_scripts = [
-        ([8], agents.PlayerAgent()),
-        ([0,1,2,3,4,5,6,7], agents.BasicAgent()),
-        ([9,10,11,12], agents.BasicAgent())
+        (AgentScripts.PlayerAgent(), 1, "defender"),
+        (AgentScripts.NewAgent(), 3, "defender"),
+        (AgentScripts.BasicAgent(), 8, "raider")
     ]
 
-    env = RaiderEnvironmentWrapper(
-        teams = [5,8],
-        agent_scripts = agent_scripts,
-        mode="god"
-    )
+    env = RaiderEnvironmentWrapper()
+    env.loadAgentScripts(agent_scripts)
+    env.reset()
     c = 0
     while True:
         if c == 0:
@@ -225,6 +260,6 @@ if __name__ == "__main__":
             c = -1
         elif c > 0:
             c -= 1
-        obs, reward, done, term, info = env.step(display=True)
+        obs, reward, done, term, info = env.step(display=True, debug=True)
         if done:
             c = 5*30

@@ -13,4 +13,6 @@ controls:
   turret: r
   up: w
   wood_wall: '5'
+  spectate_1: right_arrow
+  spectate_2: left_arrow
 name: :)

@@ -11,7 +11,7 @@ from agents.base_agent import BaseAgent
 def dist2(v1, v2):
     return (v2[0]-v1[0])**2 + (v2[1]-v1[1])**2
 
-class BasicAgent(BaseAgent):
+class NewAgent(BaseAgent):
     class States(Enum): # basic agent states
         IDLE = 0
         EXPLORING = 1
@@ -946,9 +946,9 @@ class BasicAgent(BaseAgent):
         obs = self.observations[agent_id]
         state = self.agent_states[agent_id]
 
-        text_surf = self.state_texts[state.state]
+        #text_surf = self.state_texts[state.state]
         # display name for demo purposes
-        #text_surf = pygame.transform.flip(self.font.render("NewAgent", True, (255,255,255)), False, True)
+        text_surf = pygame.transform.flip(self.font.render("NewAgent", True, (255,255,255)), False, True)
         text_rect = text_surf.get_rect(center=(obs.self.position[0], obs.self.position[1]+30))
         surface.blit(text_surf, text_rect)
     

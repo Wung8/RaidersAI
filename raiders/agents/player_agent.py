@@ -12,14 +12,23 @@ class PlayerAgent(BaseAgent):
     def __init__(self):
         pass
 
-    def initialize(self, agent_ids, team):
-        self.n_instances = len(agent_ids)
+    def initialize(self, team):
         self.screen_center = None
         self.observation = None
+    
+    def registerAgentID(self, id_):
+        pass
 
-    def step(self, observations, team_observations):
-        self.screen_center = observations[0].metadata.screen_center
-        self.observation = observations[0] 
+    def unRegisterAgentID(self, id_):
+        pass
+
+    def handleTeamObservation(self, team_observation):
+        self.sample_id = tuple(team_observation.keys())[0]
+        pass
+
+    def getAction(self, observation, id_):
+        self.screen_center = observation.metadata.screen_center
+        self.observation = observation
 
         keys = pygame.key.get_pressed()
 
@@ -62,9 +71,9 @@ class PlayerAgent(BaseAgent):
             else: angle = -2
         angle = angle + 2
 
-        return [(ax, ay, active, action, angle)] * self.n_instances
+        return (ax, ay, active, action, angle)
 
-    def debug(self, surface):
+    def debug(self, surface, id_):
         pass
     
     def getNames(self):

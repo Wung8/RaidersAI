@@ -6,6 +6,7 @@ import struct
 import sys
 import pygame
 import time
+import traceback
 
 import raiders
 import env_utils
@@ -40,13 +41,13 @@ def recv_msg(conn):
 
 
 class GameServer:
-    def __init__(self, host='0.0.0.0', port=12345, teams=[8,5], agent_scripts=[]):
+    def __init__(self, host='0.0.0.0', port=12345):
         pygame.init()
         self.host = host
         self.port = port
 
         # create environment wrapper in "god" mode as requested
-        self.env = RaiderEnvironmentWrapper(teams, agent_scripts, mode="god")
+        self.env = RaiderEnvironmentWrapper(mode="god")
 
         # network
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -55,10 +56,13 @@ class GameServer:
         self.sock.listen()
 
         # bookkeeping
+        self.pending_new_players = []
+        self.pending_remove_players = []
         self.clients = {}  # conn -> {'player_id': int, 'thread': Thread}
         self.player_conn = {}  # player_id -> conn
         self.running = True
         self.lock = threading.Lock()  # protects clients/player_conn
+        self.env_lock = threading.Lock()
 
     def accept_loop(self):
         print(f"[server] listening on {self.host}:{self.port}")
@@ -72,21 +76,11 @@ class GameServer:
                     print("[server] invalid or no registration; closing connection")
                     conn.close()
                     continue
-                player_id = reg.get("player_id")
-                if player_id is None:
-                    print("[server] registration missing player_id; closing")
-                    conn.close()
-                    continue
+                team = reg.get("team")
 
                 with self.lock:
-                    self.clients[conn] = {'player_id': player_id, 'addr': addr}
-                    self.player_conn[player_id] = conn
-
-                # start a thread to listen for subsequent messages (actions) from this client
-                t = threading.Thread(target=self.client_recv_loop, args=(conn,), daemon=True)
-                t.start()
-                self.clients[conn]['thread'] = t
-                print(f"[server] registered player {player_id} from {addr}")
+                    self.pending_new_players.append((conn, team))
+                print(f"[server] queued player for team '{team}'")
             except socket.timeout:
                 continue
             except Exception as e:
@@ -111,8 +105,10 @@ class GameServer:
                     action = action[:-1] + (env_utils.convAngleToAction(self.env.env.players[player_id].angle, action[-1]),)
                     # validate range
                     with self.lock:
-                        if 0 <= player_id < len(self.env.actions):
+                        if player_id in self.env.actions:
                             self.env.actions[player_id] = action
+                        else:
+                            print("player id not found")
                     
                     if "name" in msg:
                         self.env.env.players[player_id].name = msg["name"]
@@ -131,6 +127,8 @@ class GameServer:
             except:
                 pass
             print("[server] client disconnected")
+            self.pending_remove_players.append(pid)
+            
 
     def process_object(self, obj):
         '''
@@ -190,7 +188,7 @@ class GameServer:
                 if isinstance(obj, raiders.Player) or isinstance(obj, raiders.Base):
                     continue
                 objects.append(obj)
-            for obj in self.env.env.players:
+            for obj in self.env.env.getPlayers():
                 #if obj.health <= 0: 
                 #    continue
                 objects.append(obj)
@@ -208,14 +206,15 @@ class GameServer:
                 'map_size': self.env.env.map_size,
                 'size': (w, h),
                 'timestamp': time.time(),
+                'ids': self.env.getActiveIDs(),
                 'info': {
-                    'names': [obs.self.name for obs in self.observations],
-                    'healths': [obs.self.health for obs in self.observations],
-                    'angles': [obs.self.angle for obs in self.observations],
-                    'positions': [obs.self.position for obs in self.observations],
-                    'food': [obs.self.food for obs in self.observations],
-                    'wood': [obs.self.wood for obs in self.observations],
-                    'stone': [obs.self.stone for obs in self.observations],
+                    'names': {id_:obs.self.name for id_, obs in self.observations.items()},
+                    'healths': {id_:obs.self.health for id_, obs in self.observations.items()},
+                    'angles': {id_:obs.self.angle for id_, obs in self.observations.items()},
+                    'positions': {id_:obs.self.position for id_, obs in self.observations.items()},
+                    'food': {id_:obs.self.food for id_, obs in self.observations.items()},
+                    'wood': {id_:obs.self.wood for id_, obs in self.observations.items()},
+                    'stone': {id_:obs.self.stone for id_, obs in self.observations.items()},
                     'objects': objects,
                     'sounds': self.env.env.sounds,
                     'stormsize': self.env.env.storm_size,
@@ -233,6 +232,7 @@ class GameServer:
                     pass
         except Exception as e:
             print(f"[server] frame broadcast error: {e}")
+            traceback.print_exc()
 
     def game_loop(self):
         """Main game loop: step the environment, display (which updates env.screen), broadcast the frame, handle quit."""
@@ -247,7 +247,29 @@ class GameServer:
                     self.env.reset()
                     buffer = 5*20
                     done = False
-                observations, rewards, terminated, truncated, info = self.env.step(display=True, debug=True)
+
+                # Handle new player joins safely
+                with self.lock:
+                    while self.pending_new_players:
+                        conn, team = self.pending_new_players.pop(0)
+                        with self.env_lock:
+                            player_id = self.env.addAgent(team=team)
+                        print(f"[server] created player {player_id} for team '{team}'")
+                        send_msg(conn, {"type": "register_ack", "player_id": player_id, "team": team})
+
+                        # set up connection bookkeeping
+                        self.clients[conn] = {'player_id': player_id, 'addr': conn.getpeername(), 'team': team}
+                        self.player_conn[player_id] = conn
+                        t = threading.Thread(target=self.client_recv_loop, args=(conn,), daemon=True)
+                        t.start()
+                        self.clients[conn]['thread'] = t
+                    while self.pending_remove_players:
+                        pid = self.pending_remove_players.pop()
+                        with self.env_lock:
+                            self.env.removeAgent(pid)
+                            print(f"[server] removed player {pid}")
+
+                observations, rewards, terminated, truncated, info = self.env.step(display=True)
                 self.observations = observations
 
                 # grab the screen buffer from the environment's screen surface
@@ -310,11 +332,12 @@ if __name__ == "__main__":
     # For now, we pass an empty agent_scripts list so server still runs and uses only player actions and default agents.
     myip = "127.0.0.1"
     agent_scripts = [
-        ([i for i in range(1,4)], env_utils.agents.BasicAgent()),
-        ([i for i in range(4,14)], env_utils.agents.BasicAgent()),
-        #([6,7,8,9,10], env_utils.agents.BasicAgent())
+        (env_utils.AgentScripts.BasicAgent(), 3, "defender"),
+        (env_utils.AgentScripts.BasicAgent(), 8, "raider")
     ]
-    server = GameServer(host=myip, port=9999, teams=[4,10], agent_scripts=agent_scripts)
+    server = GameServer(host=myip, port=9999)
+    server.env.loadAgentScripts(agent_scripts)
+    server.env.reset()
     accept_thread = threading.Thread(target=server.accept_loop, daemon=True)
     accept_thread.start()
     server.game_loop()
