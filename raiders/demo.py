@@ -2,7 +2,7 @@ import env_utils
 
 agent_scripts = [
     (env_utils.AgentScripts.PlayerAgent(), 1, "defender"),
-    (env_utils.AgentScripts.BasicAgent(), 3, "defender"),
+    (env_utils.AgentScripts.MatthewAgent(), 3, "defender"),
     (env_utils.AgentScripts.BasicAgent(), 6, "raider")
 ]
 
