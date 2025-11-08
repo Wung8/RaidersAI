@@ -14,6 +14,8 @@ import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = '0,0'
 
 import raiders
+from env_utils import RaiderEnvironmentWrapper
+from static_displays import StaticDisplays
 MSG_LEN_STRUCT = struct.Struct("!I")
 
 KEY_ALIASES = {
@@ -441,12 +443,7 @@ class GameClient:
                     pygame.display.flip()
 
                     px, py = info["positions"][abs(self.hover_player)]
-                    for sound in sounds:
-                        sound_id, sx, sy, sc = sound
-                        dist = math.dist((px, py), (sx, sy))
-                        if dist > 550: 
-                            continue
-                        raiders.SoundUtils.playSound(sound_id, dist, sc)
+                    RaiderEnvironmentWrapper.playSounds((px, py), sounds)
 
 
                     # build action from local input and send to server

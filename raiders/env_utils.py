@@ -9,6 +9,7 @@ import math, time
 from enum import Enum
 
 from raiders import RaiderEnvironment
+from sound_utils import SoundUtils
 from agents.base_agent import BaseAgent
 from agents.player_agent import PlayerAgent
 
@@ -61,12 +62,8 @@ class RaiderEnvironmentWrapper():
 
         self.scripts = []
         self.active_ids = {}
-
-        if mode == "god":
-            self.hover_player = 0
-            self.camera_mode = "god"
-        elif mode == "player":
-            self.camera_mode = "human"
+        self.hover_player = 1
+        self.camera_mode = mode
         
         self.t = time.time()
         self.framerate = 0
@@ -136,7 +133,7 @@ class RaiderEnvironmentWrapper():
             action = script.getAction(observations[id_], id_)
             self.actions[id_] = action
 
-    def step(self, display=False, debug=False):   
+    def step(self, display=False, sounds=False, debug=False):   
         observations, rewards, terminated, truncated, info = self.env.step(self.actions)
 
         for script in self.scripts:
@@ -153,11 +150,11 @@ class RaiderEnvironmentWrapper():
             self.cameraControl()
 
         if display:
-            self.display(self.hover_player, debug)
+            self.display(self.hover_player, sounds, debug)
         
         return observations, rewards, terminated, truncated, info
     
-    def display(self, player_id, debug=False):
+    def display(self, player_id, sounds, debug):
         old_camera_scale = self.env.camera.scale
         old_camera_center = self.env.camera.frame_rect.center
 
@@ -165,6 +162,9 @@ class RaiderEnvironmentWrapper():
             self.env.camera.scale = 300
             player_obj = self.env.players[player_id]
             self.env.camera.frame_rect.center = player_obj.pos
+
+            if sounds:
+                self.playSounds(player_obj.pos, self.env.sounds)
 
         if debug:
             for id_, script in self.active_ids.items():
@@ -203,6 +203,16 @@ class RaiderEnvironmentWrapper():
         self.env.camera.scale = old_camera_scale
         self.env.camera.frame_rect.center = old_camera_center
 
+    @ staticmethod
+    def playSounds(position, sounds):
+        px, py = position
+        for sound in sounds:
+            sound_id, sx, sy, sc = sound
+            dist = math.dist((px, py), (sx, sy))
+            if dist > 550: 
+                continue
+            SoundUtils.playSound(sound_id, dist, sc)
+
 
     def cameraControl(self):
         for event in pygame.event.get():
@@ -217,11 +227,13 @@ class RaiderEnvironmentWrapper():
                     print(self.camera_mode)
                 
                 if self.camera_mode == "hover_player":
+                    player_ids = list(self.env.players.keys())
+                    curr_idx = player_ids.index(self.hover_player)
                     if event.key == pygame.K_COMMA:
-                        self.hover_player = (self.hover_player - 1) % self.num_agents
+                        self.hover_player = player_ids[(curr_idx - 1) % len(player_ids)]
                         print(self.hover_player)
                     if event.key == pygame.K_PERIOD:
-                        self.hover_player = (self.hover_player + 1) % self.num_agents
+                        self.hover_player = player_ids[(curr_idx + 1) % len(player_ids)]
                         print(self.hover_player)
         
         keys = pygame.key.get_pressed()
@@ -243,14 +255,15 @@ class RaiderEnvironmentWrapper():
 pygame.init()
 AgentScripts = discoverAgents()
 
+# example usage
 if __name__ == "__main__":
     agent_scripts = [
         (AgentScripts.PlayerAgent(), 1, "defender"),
-        (AgentScripts.NewAgent(), 3, "defender"),
-        (AgentScripts.BasicAgent(), 8, "raider")
+        (AgentScripts.BasicAgent(), 3, "defender"),
+        (AgentScripts.BasicAgent(), 6, "raider")
     ]
 
-    env = RaiderEnvironmentWrapper()
+    env = RaiderEnvironmentWrapper(mode="god")
     env.loadAgentScripts(agent_scripts)
     env.reset()
     c = 0
@@ -260,6 +273,6 @@ if __name__ == "__main__":
             c = -1
         elif c > 0:
             c -= 1
-        obs, reward, done, term, info = env.step(display=True, debug=True)
+        obs, reward, done, term, info = env.step(display=True, sounds=True, debug=False)
         if done:
             c = 5*30

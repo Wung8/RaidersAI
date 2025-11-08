@@ -8,6 +8,8 @@ import pickle
 
 from abc import ABC, abstractmethod
 
+from sound_utils import SoundUtils
+
 pygame.init()
 pygame.display.set_mode((1, 1))  # Minimal dummy window
 
@@ -42,59 +44,6 @@ def cast(value: str):
     except ValueError:
         return value  # Return original string if no match
         
-pygame.mixer.init()
-pygame.mixer.set_num_channels(32)  # allow many sounds
-
-assets_folder = "assets/sounds"
-sound_files = [f for f in os.listdir(assets_folder) if f.endswith((".ogg"))]
-sounds = {}
-sound_to_idx = {}
-idx_to_sound = {}
-idx = 0
-for file in sound_files:
-    f = file
-    file = file.split("/")[-1].split(".")[0]
-    n = 0
-    for n in range(len(file)):
-        if file[n].isdigit():
-            break
-    
-    if not file[n].isdigit():
-        file = file + "0"
-        n += 1
-    sound, num = file[:n], file[n:]
-    if sound not in sounds:
-        sounds[sound] = []
-        sound_to_idx[sound] = idx
-        idx_to_sound[idx] = sound
-        idx += 1
-    sounds[sound].append(pygame.mixer.Sound(os.path.join(assets_folder, f)))
-
-class SoundUtils:
-
-    sounds = sounds
-    sound_to_idx = sound_to_idx
-    idx_to_sound = idx_to_sound
-
-    @staticmethod
-    def encodeSoundID(sound):
-        return SoundUtils.sound_to_idx[sound]
-
-    @staticmethod
-    def decodeSoundID(sound_id):
-        sound = SoundUtils.idx_to_sound[sound_id]
-        return random.choice(SoundUtils.sounds[sound])
-
-    @staticmethod
-    def playSound(sound_id, dist, scale):
-        sound = SoundUtils.decodeSoundID(sound_id)
-        channel = sound.play()
-        if channel:  # if a free channel was available
-            volume = scale * max(0, min(1, 1 - 0.5*dist/300))
-            channel.set_volume(volume)
-
-        
-
 cache_folder = "assets_cache"
 
 image_files = [f for f in os.listdir(cache_folder) if f.endswith((".png", ".jpg", ".jpeg"))]
