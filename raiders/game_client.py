@@ -299,6 +299,7 @@ class GameClient:
                     size = msg['size']
                     info = msg.get('info')
                     ids = msg.get('ids')
+                    teams = msg.get('teams')
 
                     if info["healths"][self.player_id] > 0:
                         self.hover_player = self.player_id
@@ -332,7 +333,6 @@ class GameClient:
                     y0 = max(0, min(y0, h - crop_h))
 
                     relative_pos = (px - x0, 600 + y0 - py)
-                    relative_pos2 = relative_pos
                     # reconstruct surface from raw RGB bytes
                     try:
                         frame_surf = pygame.Surface((600, 600), pygame.SRCALPHA)
@@ -390,6 +390,16 @@ class GameClient:
 
                     # blit and flip
                     frame_surf = pygame.transform.flip(frame_surf, False, True)
+
+                    hyphen_surf = self.font.render(f" - ", True, (255,255,255))
+                    hyphen_rect = hyphen_surf.get_rect(center=(300, 20))
+                    defenders_surf = self.font.render(f"{teams[0]}", True, (140, 220, 255))
+                    defenders_rect = defenders_surf.get_rect(topright=hyphen_rect.topleft)
+                    raiders_surf = self.font.render(f"{teams[1]}", True, (255, 140, 80))
+                    raiders_rect = raiders_surf.get_rect(topleft=hyphen_rect.topright)
+                    frame_surf.blit(hyphen_surf, hyphen_rect)
+                    frame_surf.blit(defenders_surf, defenders_rect)
+                    frame_surf.blit(raiders_surf, raiders_rect)
 
                     # fit frame to window
                     window_size = self.surface.get_size()

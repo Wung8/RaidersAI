@@ -833,7 +833,8 @@ class Player():
             "stone": self.stone,
             "active": self.active,
             "attacking": bool(self.attack_tick),
-            "attack_state": [-1, [0, 1][self.frames[2] < self.attack_tick <= self.frames[1]]][bool(self.attack_tick)]
+            "attack_state": [-1, [0, 1][self.frames[2] < self.attack_tick <= self.frames[1]]][bool(self.attack_tick)],
+            "events": self.events,
         })
 
     def __str__(self):
@@ -1698,13 +1699,12 @@ class RaiderEnvironment():
     def getPlayers(self):
         return tuple(self.players.values())
 
-    def addPlayer(self, id_, team):
+    def addPlayer(self, id_, team, name=None):
         team = 1 if team=="defender" else 2
         player = Player(self, (-1,-1), team, id_)
-        if team == 1:
-            self.setSpawnLoc(self.map_size[0]*0.12, player)
-        else:
-            self.setSpawnLoc(self.map_size[0]*0.4, player)
+        if name is not None:
+            player.name = name
+        self.initializePlayer(player, team)
         self.players[id_] = player
         self.dynamic_objects.append(player)
 
@@ -1848,9 +1848,10 @@ class RaiderEnvironment():
         
         for id_, player in self.players.items():
             team = player.team
+            name = player.name
             player = Player(self, (-1,-1), team, id_)
-            player.food, player.wood, player.stone = (50, 120, 120) if team==1 else (80, 50, 50)
-            self.setSpawnLoc(self.map_size[0] * [0.12, 0.4][team-1], player)
+            player.name = name
+            self.initializePlayer(player, team)
             self.players[id_] = player
         
         self.dynamic_objects = [player for player in self.players.values()]
@@ -1866,9 +1867,14 @@ class RaiderEnvironment():
         info = AttrDict(info)
         return observations, info
     
+    def initializePlayer(self, player, team):
+        player.food, player.wood, player.stone = (50, 120, 120) if team==1 else (80, 50, 50)
+        self.setSpawnLoc(self.map_size[0] * [0.12, 0.4][team-1], player)
+    
     def getTeamCounts(self):
         teams = [0,0]
         for id_, player in self.players.items():
+            if player.health <= 0: continue
             team = player.team
             teams[team-1] += 1
         return teams
@@ -2032,10 +2038,7 @@ class RaiderEnvironment():
                 absorption_ratio = health_ratio - 1
                 pygame.draw.rect(self.surface, (255,220,90), (player.pos[0]+(bar_width-3)*(0.5-absorption_ratio), player.pos[1]+21, (bar_width-3)*absorption_ratio, 3))
 
-        done = self.gameIsDone()
-        
-        #((self.base.health <= 0) or (self.t > 10*60*20) or \
-        #        (0 == sum([max(0, p.health) for p in self.players[:self.teams[0]]])) or (0 == sum([max(0, p.health) for p in self.players[self.teams[0]:]])))
+        done, winning_team = self.gameIsDone()
 
         observations = {}
         info = {"team_observations": {"defender": {}, "raider": {}} }
@@ -2046,13 +2049,6 @@ class RaiderEnvironment():
             observations[id_] = obs
         info = AttrDict(info)
 
-        if not done:
-            reward = 0
-        else:
-            if self.base.health <= 0:
-                reward = {n:[0,20][done] * 2*((p.team==self.base.team)-0.5) for n,p in self.players.items()}
-            else:
-                reward = 1
         term = False
 
         if display:
@@ -2062,20 +2058,22 @@ class RaiderEnvironment():
             pygame.display.flip()
             self.clock.tick(20)
 
-        return observations, reward, done, term, info
+        return observations, winning_team, done, term, info
 
     def gameIsDone(self):
         if self.base.health <= 0:
-            return True
+            return True, "raider"
         teams = [0,0]
         for player in self.getPlayers():
             if player.health <= 0: continue
             teams[player.team-1] += 1
         if teams[0] == 0:
-            return True
+            return True, "raider"
         if teams[1] == 0:
-            return True
-        return False
+            return True, "defender"
+        if self.t >= 10*60*20:
+            return True, "defender"
+        return False, None
 
         #((self.base.health <= 0) or (self.t > 10*60*20) or \
         #        (0 == sum([max(0, p.health) for p in self.players[:self.teams[0]]])) or (0 == sum([max(0, p.health) for p in self.players[self.teams[0]:]])))

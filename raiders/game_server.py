@@ -207,6 +207,7 @@ class GameServer:
                 'size': (w, h),
                 'timestamp': time.time(),
                 'ids': self.env.getActiveIDs(),
+                'teams': self.env.env.getTeamCounts(),
                 'info': {
                     'names': {id_:obs.self.name for id_, obs in self.observations.items()},
                     'healths': {id_:obs.self.health for id_, obs in self.observations.items()},
@@ -247,6 +248,40 @@ class GameServer:
                     self.env.reset()
                     buffer = 5*20
                     done = False
+                
+                if keys[pygame.K_u]:
+                    if not any(isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="defender" for script in self.env.scripts):
+                        self.env.addScript(env_utils.AgentScripts.BasicAgent)
+                    for script in self.env.scripts:
+                        if isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="defender":
+                            print(type(script))
+                            self.env.removeAgent(script=script)
+                            break
+                if keys[pygame.K_i]:
+                    if not any(isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="raider" for script in self.env.scripts):
+                        self.env.addScript(env_utils.AgentScripts.BasicAgent)
+                    for script in self.env.scripts:
+                        if isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="raider":
+                            print(type(script))
+                            self.env.removeAgent(script=script)
+                            break
+                if keys[pygame.K_o]:
+                    if not any(isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="defender" for script in self.env.scripts):
+                        self.env.addScript(env_utils.AgentScripts.BasicAgent)
+                    for script in self.env.scripts:
+                        if isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="defender":
+                            print(type(script))
+                            self.env.addAgent(script=script)
+                            break
+                if keys[pygame.K_p]:
+                    if not any(isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="raider" for script in self.env.scripts):
+                        self.env.addScript(env_utils.AgentScripts.BasicAgent)
+                    for script in self.env.scripts:
+                        if isinstance(script, env_utils.AgentScripts.BasicAgent) and script.__team__=="raider":
+                            print(type(script))
+                            self.env.addAgent(script=script)
+                            break
+
 
                 # Handle new player joins safely
                 with self.lock:
@@ -332,8 +367,8 @@ if __name__ == "__main__":
     # For now, we pass an empty agent_scripts list so server still runs and uses only player actions and default agents.
     myip = "127.0.0.1"
     agent_scripts = [
-        (env_utils.AgentScripts.BasicAgent(), 3, "defender"),
-        (env_utils.AgentScripts.BasicAgent(), 8, "raider")
+        (env_utils.AgentScripts.MatthewAgent(), 5, "defender"),
+        (env_utils.AgentScripts.BasicAgent(), 10, "raider")
     ]
     server = GameServer(host=myip, port=9999)
     server.env.loadAgentScripts(agent_scripts)

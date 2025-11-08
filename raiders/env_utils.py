@@ -103,13 +103,22 @@ class RaiderEnvironmentWrapper():
 
         id_ = self.getAvailableID()
         if script is not None:
-            script.addAgent(id_)
+            name = script.addAgent(id_)
+        else:
+            name = None
         self.active_ids[id_] = script
-        self.env.addPlayer(id_, team)
+        self.env.addPlayer(id_, team, name)
         self.actions[id_] = [1, 1, 0, 0, 2]
         return id_
 
-    def removeAgent(self, id_):
+    def removeAgent(self, id_=None, script=None):
+        if script is not None:
+            for script2 in self.scripts:
+                if script2 == script:
+                    for id, s in self.active_ids.items():
+                        if s == script:
+                            id_ = id
+                            break
         if id_ not in self.active_ids:
             print(f"Tried to remove inactive id {id_}")
         script = self.active_ids[id_]

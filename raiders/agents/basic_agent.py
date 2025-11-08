@@ -60,7 +60,7 @@ class BasicAgent(BaseAgent):
         return f"BasicAgent{id_}"
 
     def removeAgent(self, id_):
-        self.agent_states.remove(id_)
+        del self.agent_states[id_]
         self.agent_ids.remove(id_)
 
     def teamStr(self, team):
